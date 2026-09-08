@@ -166,8 +166,8 @@ final class GameView: NSView {
         var on: Bool = true
     }
 
-    private static let RAIL: CGFloat = 30
-    private static let CUSH: CGFloat = 14
+    private static let RAIL: CGFloat = 24
+    private static let CUSH: CGFloat = 10
     private static let REST_C: CGFloat = 0.72    // cushion restitution
     private static let REST_B: CGFloat = 0.95    // ball-ball restitution
     private static let FRICTION: CGFloat = 0.9
@@ -251,21 +251,19 @@ final class GameView: NSView {
     }
 
     private func buildGeometry() {
-        let f = courseFrame
-        let w = max(720, min(f.width * 0.8, (f.height - 170) * 2))
-        let h = w / 2
-        table = CGRect(x: f.midX - w / 2, y: f.midY - h / 2 - 14, width: w, height: h)
+        // the whole main screen is the table — cushions are the screen edges
+        table = courseFrame
         play = table.insetBy(dx: Self.RAIL + Self.CUSH, dy: Self.RAIL + Self.CUSH)
 
-        let off: CGFloat = 7
+        let off: CGFloat = 10
         let cornerR = BR * 2.15
         let sideR = BR * 1.9
         pockets = [
             (c: CGPoint(x: play.minX - off, y: play.minY - off), r: cornerR),
-            (c: CGPoint(x: play.midX, y: play.minY - off - 2), r: sideR),
+            (c: CGPoint(x: play.midX, y: play.minY - off - 10), r: sideR),
             (c: CGPoint(x: play.maxX + off, y: play.minY - off), r: cornerR),
             (c: CGPoint(x: play.minX - off, y: play.maxY + off), r: cornerR),
-            (c: CGPoint(x: play.midX, y: play.maxY + off + 2), r: sideR),
+            (c: CGPoint(x: play.midX, y: play.maxY + off + 10), r: sideR),
             (c: CGPoint(x: play.maxX + off, y: play.maxY + off), r: cornerR),
         ]
         cornerMouth = cornerR + BR * 0.8
@@ -391,15 +389,19 @@ final class GameView: NSView {
                 b.p.y = play.maxY - BR
                 if b.v.y > 0 { if abs(b.v.y) > 70 { SFX.shared.cushion() }; b.v.y = -b.v.y * Self.REST_C }
             }
-            // pocket jaws: deadened bounce behind the rails so nothing escapes
-            if b.p.x < table.minX + BR { b.p.x = table.minX + BR; b.v.x = abs(b.v.x) * 0.4 }
-            if b.p.x > table.maxX - BR { b.p.x = table.maxX - BR; b.v.x = -abs(b.v.x) * 0.4 }
-            if b.p.y < table.minY + BR { b.p.y = table.minY + BR; b.v.y = abs(b.v.y) * 0.4 }
-            if b.p.y > table.maxY - BR { b.p.y = table.maxY - BR; b.v.y = -abs(b.v.y) * 0.4 }
-            for pk in pockets where b.p.dist(to: pk.c) < pk.r + 4 {
+            // pocket jaws: deadened bounce just behind the cushion line so nothing escapes
+            let jaw = BR * 0.6
+            if b.p.x < play.minX - jaw { b.p.x = play.minX - jaw; b.v.x = abs(b.v.x) * 0.4 }
+            if b.p.x > play.maxX + jaw { b.p.x = play.maxX + jaw; b.v.x = -abs(b.v.x) * 0.4 }
+            if b.p.y < play.minY - jaw { b.p.y = play.minY - jaw; b.v.y = abs(b.v.y) * 0.4 }
+            if b.p.y > play.maxY + jaw { b.p.y = play.maxY + jaw; b.v.y = -abs(b.v.y) * 0.4 }
+            var pottedThisStep = false
+            for pk in pockets where b.p.dist(to: pk.c) < pk.r {
                 pot(i, into: pk.c)
+                pottedThisStep = true
                 break
             }
+            if !pottedThisStep { balls[i] = b }
         }
 
         let n = balls.count
@@ -663,53 +665,51 @@ final class GameView: NSView {
     }
 
     private func drawTable(_ ctx: CGContext) {
-        ctx.setShadow(offset: CGSize(width: 0, height: -6), blur: 18, color: NSColor.black.withAlphaComponent(0.5).cgColor)
-        ctx.setFillColor(CGColor.rgb(0.34, 0.21, 0.11, 0.98))
-        ctx.addPath(CGPath(roundedRect: table, cornerWidth: 22, cornerHeight: 22, transform: nil))
-        ctx.fillPath()
-        ctx.setShadow(offset: .zero, blur: 0, color: nil)
+        // felt — translucent, floats over the whole desktop
+        ctx.setFillColor(CGColor.rgb(0.04, 0.35, 0.2, 0.22))
+        ctx.fill(table)
 
-        let felt = play.insetBy(dx: -Self.CUSH, dy: -Self.CUSH)
-        ctx.setFillColor(CGColor.rgb(0.04, 0.35, 0.2, 0.99))
-        ctx.addPath(CGPath(roundedRect: felt, cornerWidth: 8, cornerHeight: 8, transform: nil))
-        ctx.fillPath()
+        // rail band around the screen edge
+        ctx.setStrokeColor(CGColor.rgb(0.4, 0.25, 0.12, 0.5))
+        ctx.setLineWidth(Self.RAIL)
+        ctx.stroke(table.insetBy(dx: Self.RAIL / 2, dy: Self.RAIL / 2))
 
-        // cushion ring
-        ctx.setStrokeColor(CGColor.rgb(0.02, 0.26, 0.14, 1))
-        ctx.setLineWidth(Self.CUSH)
-        ctx.stroke(play.insetBy(dx: -Self.CUSH / 2, dy: -Self.CUSH / 2))
+        // cushion nose
+        ctx.setStrokeColor(CGColor.rgb(0.02, 0.26, 0.14, 0.65))
+        ctx.setLineWidth(3)
+        ctx.stroke(play)
 
         // head string + spots
-        ctx.setStrokeColor(CGColor.rgb(1, 1, 1, 0.1))
+        ctx.setStrokeColor(CGColor.rgb(1, 1, 1, 0.14))
         ctx.setLineWidth(1)
         ctx.move(to: CGPoint(x: headSpot.x, y: play.minY))
         ctx.addLine(to: CGPoint(x: headSpot.x, y: play.maxY))
         ctx.strokePath()
-        ctx.setFillColor(CGColor.rgb(1, 1, 1, 0.18))
+        ctx.setFillColor(CGColor.rgb(1, 1, 1, 0.28))
         for sp in [headSpot, footSpot] {
             ctx.fillEllipse(in: CGRect(x: sp.x - 2.5, y: sp.y - 2.5, width: 5, height: 5))
         }
 
         // pockets
         for pk in pockets {
-            ctx.setFillColor(CGColor.rgb(0, 0, 0, 0.92))
+            ctx.setFillColor(CGColor.rgb(0, 0, 0, 0.72))
             ctx.fillEllipse(in: CGRect(x: pk.c.x - pk.r, y: pk.c.y - pk.r, width: pk.r * 2, height: pk.r * 2))
-            ctx.setStrokeColor(CGColor.rgb(1, 1, 1, 0.14))
+            ctx.setStrokeColor(CGColor.rgb(1, 1, 1, 0.22))
             ctx.setLineWidth(2)
             ctx.strokeEllipse(in: CGRect(x: pk.c.x - pk.r, y: pk.c.y - pk.r, width: pk.r * 2, height: pk.r * 2))
         }
 
         // rail diamonds
-        ctx.setFillColor(CGColor.rgb(1, 1, 1, 0.5))
+        ctx.setFillColor(CGColor.rgb(1, 1, 1, 0.55))
         for i in 1...7 where i != 4 {
             let x = play.minX + play.width * CGFloat(i) / 8
-            diamond(ctx, CGPoint(x: x, y: table.minY + Self.RAIL / 2), 3)
-            diamond(ctx, CGPoint(x: x, y: table.maxY - Self.RAIL / 2), 3)
+            diamond(ctx, CGPoint(x: x, y: table.minY + Self.RAIL / 2 + 3), 3)
+            diamond(ctx, CGPoint(x: x, y: table.maxY - Self.RAIL / 2 - 3), 3)
         }
         for j in 1...3 {
             let y = play.minY + play.height * CGFloat(j) / 4
-            diamond(ctx, CGPoint(x: table.minX + Self.RAIL / 2, y: y), 3)
-            diamond(ctx, CGPoint(x: table.maxX - Self.RAIL / 2, y: y), 3)
+            diamond(ctx, CGPoint(x: table.minX + Self.RAIL / 2 + 3, y: y), 3)
+            diamond(ctx, CGPoint(x: table.maxX - Self.RAIL / 2 - 3, y: y), 3)
         }
     }
 
@@ -876,7 +876,7 @@ final class GameView: NSView {
             .shadow: shadow(),
         ]
         let sz = (text as NSString).size(withAttributes: attrs)
-        (text as NSString).draw(at: CGPoint(x: table.midX - sz.width / 2, y: table.maxY + 14), withAttributes: attrs)
+        (text as NSString).draw(at: CGPoint(x: table.midX - sz.width / 2, y: play.maxY - 28), withAttributes: attrs)
     }
 
     private func drawHint(_ ctx: CGContext, _ t: Double) {
